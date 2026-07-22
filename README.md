@@ -25,6 +25,7 @@ This is an **advisory** layer on top of static analysis (CodeQL, Semgrep, etc.).
 | --- | --- | --- |
 | `CLOUDFLARE_ACCOUNT_ID` | Yes | Cloudflare account ID |
 | `CLOUDFLARE_API_TOKEN` | pr mode | Account-scoped token with Workers AI access (`/ai/run`) |
+| `ADVERSARIAL_AUDIT_CF_API_TOKEN` | pr mode (Actions) | Recommended GitHub secret name when the repo already uses `CLOUDFLARE_API_TOKEN` for wrangler deploy; map into `CLOUDFLARE_API_TOKEN` env in the workflow |
 | `CF_AIG_TOKEN` | repo mode | AI Gateway unified-billing token (`cf-aig-authorization`) |
 | `AI_GATEWAY_ID` | No | Gateway slug (default: `your-gateway-id`) |
 
