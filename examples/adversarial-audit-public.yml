@@ -5,8 +5,11 @@ name: Adversarial audit
 #   pr   -> @cf/moonshotai/kimi-k2.7-code on merge-base diff
 #   repo -> moonshotai/kimi-k3 full tree (workflow_dispatch only; needs CF_AIG_TOKEN)
 #
-# Required secrets (repo or org): CF_AIG_TOKEN, CLOUDFLARE_API_TOKEN
+# Required secrets (repo or org): CF_AIG_TOKEN, ADVERSARIAL_AUDIT_CF_API_TOKEN
 # Required vars (repo or org):    CLOUDFLARE_ACCOUNT_ID, AI_GATEWAY_ID
+#
+# Use ADVERSARIAL_AUDIT_CF_API_TOKEN (Workers AI Read), not secrets.CLOUDFLARE_API_TOKEN,
+# when the repo already has a deploy/wrangler token under that name.
 
 on:
   pull_request:
@@ -53,7 +56,7 @@ jobs:
       - name: Run adversarial audit
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.ADVERSARIAL_AUDIT_CF_API_TOKEN }}
           CF_AIG_TOKEN: ${{ secrets.CF_AIG_TOKEN }}
           AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -66,7 +69,7 @@ jobs:
             exit 2
           fi
           if [[ "$mode" == "pr" && -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-            echo "::error::CLOUDFLARE_API_TOKEN required for pr mode"
+            echo "::error::ADVERSARIAL_AUDIT_CF_API_TOKEN required for pr mode (Workers AI Read)"
             exit 2
           fi
           if [[ "$mode" == "repo" && -z "${CF_AIG_TOKEN:-}" ]]; then
