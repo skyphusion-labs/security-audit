@@ -1,0 +1,107 @@
+name: Adversarial security audit (reusable)
+
+# LLM red-team layer on top of static analysis (advisory by default).
+#   mode=pr   -> @cf/moonshotai/kimi-k2.7-code on merge-base diff (PR / push)
+#   mode=repo -> moonshotai/kimi-k3 on tracked source tree (scheduled deep audit)
+#
+# Secrets: CF_AIG_TOKEN (K3), CLOUDFLARE_API_TOKEN (K2.7 @cf /ai/run)
+# Vars:    CLOUDFLARE_ACCOUNT_ID, AI_GATEWAY_ID
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: pr (K2.7 diff) or repo (K3 full tree)
+        required: false
+        type: string
+        default: pr
+      base_ref:
+        description: Optional git base ref/sha for pr mode (default origin/main)
+        required: false
+        type: string
+        default: ""
+      fail_on:
+        description: none | high | critical
+        required: false
+        type: string
+        default: none
+      post_pr_comment:
+        description: Post markdown summary as PR comment (pr mode only)
+        required: false
+        type: boolean
+        default: true
+      audit_scripts_ref:
+        description: security-audit ref for the audit scripts (pin for stability)
+        required: false
+        type: string
+        default: main
+    secrets:
+      CF_AIG_TOKEN:
+        required: true
+      CLOUDFLARE_API_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout audit scripts
+        uses: actions/checkout@v4
+        with:
+          repository: skyphusion-labs/security-audit
+          ref: ${{ inputs.audit_scripts_ref }}
+          path: security-audit
+
+      - name: Run adversarial audit
+        id: audit
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_AIG_TOKEN: ${{ secrets.CF_AIG_TOKEN }}
+          AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID is unset (org or repo variable)"
+            exit 2
+          fi
+          args=(--mode "${{ inputs.mode }}" --output json --out-file audit.json --md-file audit-report.md)
+          if [[ -n "${{ inputs.base_ref }}" ]]; then
+            args+=(--base "${{ inputs.base_ref }}")
+          fi
+          if [[ -n "${{ inputs.fail_on }}" ]]; then
+            args+=(--fail-on "${{ inputs.fail_on }}")
+          fi
+          node security-audit/adversarial-audit.mjs "${args[@]}"
+
+      - name: Post PR comment (advisory)
+        if: >-
+          inputs.mode == 'pr' &&
+          inputs.post_pr_comment &&
+          github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash security-audit/post-pr-comment.sh \
+            "${{ github.event.pull_request.number }}" \
+            audit-report.md
+
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: adversarial-audit-${{ inputs.mode }}
+          path: |
+            audit.json
+            audit-report.md
+          if-no-files-found: error
