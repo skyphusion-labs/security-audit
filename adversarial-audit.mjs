@@ -4,7 +4,10 @@
  *
  * Modes:
  *   pr   -- @cf/moonshotai/kimi-k2.7-code on merge-base diff (every PR / push)
- *   repo -- moonshotai/kimi-k3 on tracked source tree (scheduled deep audit)
+ *   repo -- tracked source tree (scheduled deep audit). PUBLIC repos: moonshotai/kimi-k3
+ *           through the AI Gateway. PRIVATE/INTERNAL repos: the K2.7 model on Workers AI,
+ *           because repo mode ships the whole tree and only a public tree may cross to a
+ *           third-party provider (data boundary; unknown visibility resolves to private).
  *
  * Required env:
  *   CLOUDFLARE_ACCOUNT_ID
@@ -21,6 +24,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { redactSecrets } from "./redact.mjs";
 
 const MODEL_PR = "@cf/moonshotai/kimi-k2.7-code";
@@ -101,6 +105,8 @@ options:
   --md-file PATH          also write markdown report (any --output mode)
   --fail-on LEVEL         none|high|critical (default none; advisory CI)
   --max-output-tokens N   default 1800 (pr) / 4000 (repo)
+  --visibility V          public|private|internal (default: GitHub event payload, else
+                          private). Governs the repo-mode data boundary below.
 `);
   process.exit(code);
 }
@@ -115,7 +121,11 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) continue;
     const key = a.slice(2);
     const next = argv[i + 1];
-    if (["mode", "base", "head", "repo-root", "output", "out-file", "md-file", "fail-on", "max-output-tokens"].includes(key)) {
+    if (
+      ["mode", "base", "head", "repo-root", "output", "out-file", "md-file", "fail-on", "max-output-tokens", "visibility"].includes(
+        key,
+      )
+    ) {
       if (!next || next.startsWith("--")) usage();
       out[key] = next;
       i++;
@@ -131,10 +141,23 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim();
 }
 
-function readText(path, maxChars) {
+/**
+ * Read a file for the model payload, TRUNCATED to the budget.
+ *
+ * An oversized file used to be dropped (`st.size > maxChars * 2` returned null),
+ * which is the worst possible failure: the model reports nothing for code it never
+ * saw and the run still looks green, so the biggest files in a repo -- often the
+ * ones carrying the most logic -- were the least audited. Truncating puts the first
+ * maxChars in front of the model instead, with a visible marker.
+ *
+ * @param {string} path
+ * @param {number} maxChars
+ * @returns {string|null} contents (possibly truncated), or null if not a readable file
+ */
+export function readText(path, maxChars) {
   if (!existsSync(path)) return null;
   const st = statSync(path);
-  if (!st.isFile() || st.size > maxChars * 2) return null;
+  if (!st.isFile()) return null;
   const raw = readFileSync(path, "utf8");
   if (raw.includes("\0")) return null;
   return raw.length > maxChars ? `${raw.slice(0, maxChars)}\n...[truncated]` : raw;
@@ -353,6 +376,36 @@ function severityRank(s) {
   return { critical: 4, high: 3, medium: 2, low: 1, info: 0 }[s] ?? 0;
 }
 
+/**
+ * Repo visibility for the repo-mode data boundary.
+ *
+ * Precedence: an explicit --visibility flag, then the GitHub Actions event payload,
+ * then "private". Unknown MUST resolve to private: repo mode sends the full source
+ * tree to the third-party provider's own API (an AI Gateway only proxies it), so only
+ * a tree that is already public may cross that line. Fail-safe means a local run with
+ * no flag gets the on-shore model rather than a silent egress.
+ *
+ * @param {Record<string, string|boolean>} args parsed CLI args
+ * @returns {Promise<"public"|"private"|"internal"|string>}
+ */
+export async function resolveVisibility(args) {
+  const flag = typeof args.visibility === "string" ? args.visibility.toLowerCase() : "";
+  if (["public", "private", "internal"].includes(flag)) return flag;
+  if (flag) usage();
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (eventPath) {
+    try {
+      const { readFileSync } = await import("node:fs");
+      const repo = JSON.parse(readFileSync(eventPath, "utf8")).repository || {};
+      if (typeof repo.visibility === "string") return repo.visibility.toLowerCase();
+      if (typeof repo.private === "boolean") return repo.private ? "private" : "public";
+    } catch {
+      /* unreadable payload: fall through to the fail-safe */
+    }
+  }
+  return "private";
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const repoRoot = String(args["repo-root"] || ".");
@@ -368,12 +421,24 @@ async function main() {
     console.error("FATAL: CLOUDFLARE_ACCOUNT_ID is required");
     process.exit(2);
   }
-  if (mode === "pr" && !apiToken) {
-    console.error("FATAL: CLOUDFLARE_API_TOKEN is required for --mode pr (K2.7 @cf /ai/run path)");
+  // Data boundary: repo mode may only leave for the third-party provider when the
+  // tree is already public. Private/internal trees stay on-shore -- same repo-mode
+  // prompt, served by the K2.7 model on Workers AI, no third-party egress.
+  const visibility = mode === "repo" ? await resolveVisibility(args) : "public";
+  const k3Eligible = mode === "repo" && visibility === "public";
+  if (mode === "repo" && !k3Eligible) {
+    console.error(
+      `adversarial-audit: DATA BOUNDARY -- repo visibility '${visibility}' != public; ` +
+        `routing repo mode to ${MODEL_PR} on Workers AI instead of ${MODEL_REPO} (no third-party egress)`,
+    );
+  }
+
+  if ((mode === "pr" || (mode === "repo" && !k3Eligible)) && !apiToken) {
+    console.error("FATAL: CLOUDFLARE_API_TOKEN is required for the K2.7 @cf /ai/run path");
     process.exit(2);
   }
-  if (mode === "repo" && !aigToken) {
-    console.error("FATAL: CF_AIG_TOKEN is required for --mode repo (Kimi K3 unified billing)");
+  if (k3Eligible && !aigToken) {
+    console.error("FATAL: CF_AIG_TOKEN is required for --mode repo on a public repo (Kimi K3 unified billing)");
     process.exit(2);
   }
 
@@ -395,13 +460,12 @@ async function main() {
     { role: "user", content: userPrompt },
   ];
 
-  const model = mode === "pr" ? MODEL_PR : MODEL_REPO;
-  console.error(`adversarial-audit: mode=${mode} model=${model} gateway=${gatewayId}`);
+  const model = k3Eligible ? MODEL_REPO : MODEL_PR;
+  console.error(`adversarial-audit: mode=${mode} model=${model} gateway=${gatewayId} visibility=${visibility}`);
 
-  const { text, raw } =
-    mode === "pr"
-      ? await callK27Code({ accountId, gatewayId, token: apiToken, messages, maxTokens })
-      : await callK3({ accountId, gatewayId, token: aigToken, messages, maxTokens });
+  const { text, raw } = k3Eligible
+    ? await callK3({ accountId, gatewayId, token: aigToken, messages, maxTokens })
+    : await callK27Code({ accountId, gatewayId, token: apiToken, messages, maxTokens });
 
   let parsed;
   try {
@@ -416,10 +480,9 @@ async function main() {
           "Your prior answer was not valid JSON or was truncated. Reply again with VALID JSON only. At most 8 findings. Keep detail fields under 240 characters each.",
       },
     ];
-    const retry =
-      mode === "pr"
-        ? await callK27Code({ accountId, gatewayId, token: apiToken, messages: retryMessages, maxTokens })
-        : await callK3({ accountId, gatewayId, token: aigToken, messages: retryMessages, maxTokens });
+    const retry = k3Eligible
+      ? await callK3({ accountId, gatewayId, token: aigToken, messages: retryMessages, maxTokens })
+      : await callK27Code({ accountId, gatewayId, token: apiToken, messages: retryMessages, maxTokens });
     parsed = extractJson(retry.text);
   }
   const report = {
@@ -455,7 +518,15 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(`FATAL: ${err.message}`);
-  process.exit(2);
-});
+// Run only when invoked as a CLI. Importing this module (the unit tests do) must not
+// start an audit; the data-boundary resolver and the payload reader are exported above
+// so they can be tested directly instead of through a live model call.
+const invokedDirectly =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  main().catch((err) => {
+    console.error(`FATAL: ${err.message}`);
+    process.exit(2);
+  });
+}

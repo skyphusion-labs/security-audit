@@ -8,8 +8,28 @@ This is an **advisory** layer on top of static analysis (CodeQL, Semgrep, etc.).
 
 | Mode | Model | Scope | Typical trigger |
 | --- | --- | --- | --- |
-| **pr** | `@cf/moonshotai/kimi-k2.7-code` | Merge-base diff + changed files | Every PR to `main` |
-| **repo** | `moonshotai/kimi-k3` | Tracked source tree (~250k char budget) | `workflow_dispatch` or scheduled deep audit |
+| **pr** | `@cf/moonshotai/kimi-k2.7-code` (Workers AI) | Merge-base diff + changed files | Every PR to `main` |
+| **repo**, PUBLIC repo | `moonshotai/kimi-k3` (through the AI Gateway) | Tracked source tree (~250k char budget) | `workflow_dispatch` or scheduled deep audit |
+| **repo**, PRIVATE / INTERNAL repo | `@cf/moonshotai/kimi-k2.7-code` (Workers AI) | Same tree snapshot, same prompt, on-shore | same |
+
+### The repo-mode data boundary
+
+The two models sit on different data paths, and repo mode is the one that matters:
+`@cf/...` models **run on Workers AI**, so the payload stays inside your Cloudflare
+account, while `moonshotai/kimi-k3` is **proxied by the AI Gateway to Moonshot's own
+API** -- a gateway forwards a request, it does not contain it. Repo mode ships your whole
+tracked tree, so:
+
+**Repo mode only uses K3 when the repository is PUBLIC.** For a private or internal repo
+it runs the same repo-mode prompt against K2.7 on Workers AI instead, prints a
+`DATA BOUNDARY --` line saying so, and the sweep still happens; it just does not egress.
+
+Visibility is resolved in this order: an explicit `--visibility public|private|internal`,
+then the GitHub Actions event payload (`repository.visibility`, or `repository.private`),
+then **`private`**. The fail-safe direction is deliberate: an unknown answer must route
+on-shore, so a local run with no flag can never leak a private tree by omission. There is
+no override flag for the boundary itself, on purpose.
+
 
 ## Scripts
 
@@ -60,6 +80,8 @@ node adversarial-audit.mjs --mode repo --output json --out-file audit.json
 --md-file PATH          markdown report (any output mode)
 --fail-on none|high|critical   default none (advisory)
 --max-output-tokens N
+--visibility public|private|internal   repo-mode data boundary (default: event
+                                       payload, else private -- see Modes above)
 ```
 
 ## GitHub Actions
