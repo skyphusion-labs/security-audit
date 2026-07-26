@@ -1,0 +1,4 @@
+# Test/dev artifacts. Neither belongs in a public repo, and without this file one
+# `git add -A` publishes ~50 MB of dependencies (or a coverage report) by accident.
+node_modules/
+coverage/

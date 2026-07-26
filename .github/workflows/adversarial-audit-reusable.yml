@@ -2,7 +2,12 @@ name: Adversarial security audit (reusable)
 
 # LLM red-team layer on top of static analysis (advisory by default).
 #   mode=pr   -> @cf/moonshotai/kimi-k2.7-code on merge-base diff (PR / push)
-#   mode=repo -> moonshotai/kimi-k3 on tracked source tree (scheduled deep audit)
+#   mode=repo -> tracked source tree (scheduled deep audit). K3 through the AI Gateway on
+#                a PUBLIC repo; on a private/internal repo the script routes the SAME
+#                repo-mode prompt to K2.7 on Workers AI instead, so the tree never egresses
+#                to a third-party provider. No input is needed for that: the script reads
+#                the CALLING repository's visibility from the Actions event payload and
+#                fail-safes to private. See the data-boundary section of the README.
 #
 # Secrets: CF_AIG_TOKEN (K3), CLOUDFLARE_API_TOKEN (K2.7 @cf /ai/run)
 # Vars:    CLOUDFLARE_ACCOUNT_ID, AI_GATEWAY_ID
