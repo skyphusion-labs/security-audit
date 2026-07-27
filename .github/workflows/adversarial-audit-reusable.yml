@@ -56,12 +56,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout target repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Checkout audit scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: skyphusion-labs/security-audit
           ref: ${{ inputs.audit_scripts_ref }}
@@ -103,7 +103,7 @@ jobs:
             audit-report.md
 
       - name: Upload audit artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: adversarial-audit-${{ inputs.mode }}
           path: |
