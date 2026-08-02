@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.1
+
+Three redaction defects, all found by executing the redactor against the input shape it
+actually receives in production rather than by reading it.
+
+- **Age keys were unredactable in `pr` mode.** The rule was anchored to a whole line
+  (`^AGE-SECRET-KEY-...), and every line of a unified diff carries a `+`, `-` or
+  leading space, so the only rule covering that key format could not fire in the mode
+  that runs on every PR. Indented occurrences (a YAML value) failed the same way. The
+  rule now matches the token wherever it sits, with a `{20,}` length floor so
+  documentation mentions of the format stay readable.
+- **Quoted assignment values leaked their tail.** The value side stopped at the first
+  whitespace, so `API_TOKEN="abc123 trailing-part"` became
+  `API_TOKEN=[REDACTED] trailing-part"`. Single- and double-quoted values are now taken
+  whole. No value pattern may cross a newline, or an unbalanced quote would swallow every
+  line up to the next one.
+- **The assignment rule ate real source, and fixing the value side alone made that worse.**
+  The identifier matched any name *containing* a keyword, so `const tokenizer = new
+  Tokenizer()` parsed as a secret assignment and the value side removed the rest of the
+  statement; `passwordInput = document.getElementById('pw');` lost its whole right-hand
+  side. Widening the value side to quoted strings turned a partial mangle into total
+  erasure of string literals. The keyword must now end the identifier or be `_`-delimited
+  within it. This is the more dangerous failure direction: over-redaction silently feeds
+  the model `[REDACTED]` instead of code while the audit still reports clean.
+- Tests now drive the redactor with production-shaped input (diff-prefixed lines, indented
+  YAML, quoted values with spaces) and assert in both directions. A secret-free diff must
+  come back byte-identical, which is the only assertion that can tell a working redactor
+  from one that redacts everything.
+
 ## 0.2.0
 
 Two fixes ported from the internal deployment of these scripts, where both were found
