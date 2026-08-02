@@ -88,8 +88,8 @@ node adversarial-audit.mjs --mode repo --output json --out-file audit.json
 
 Copy an example from `examples/` into `.github/workflows/` and configure secrets/vars.
 
-- **`examples/adversarial-audit-public.yml`** — checkout this repo and run inline (works for public repos).
-- **`examples/adversarial-audit-private-reusable-call.yml`** — call the reusable workflow (private repos).
+- **`examples/adversarial-audit-public.yml`**: checkout this repo and run inline (works for public repos).
+- **`examples/adversarial-audit-private-reusable-call.yml`**: call the reusable workflow (private repos).
 
 See also `.github/workflows/adversarial-audit-reusable.yml` in this repo for the callable workflow definition.
 
@@ -113,4 +113,4 @@ JSON (default) or markdown table with severity, location, title, and detail. Fin
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT: see [LICENSE](LICENSE).
