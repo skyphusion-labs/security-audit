@@ -103,7 +103,9 @@ On pull requests, the workflow posts (or updates) an advisory comment via `post-
 
 ## Secret redaction
 
-Before any payload is sent to the model, `redact.mjs` applies pattern-based redaction (PEM blocks, GitHub PATs, JWTs, common env assignments, etc.). **Redaction is hygiene, not a guarantee.** Do not audit repos containing live production secrets.
+Before any payload is sent to the model, `redact.mjs` applies pattern-based redaction (PEM blocks, age keys, GitHub PATs, JWTs, common env assignments, etc.). **Redaction is hygiene, not a guarantee.** Do not audit repos containing live production secrets.
+
+The rules match tokens, never whole lines or spans, for two reasons. In `pr` mode the payload is a unified diff, so every line carries a `+`, `-` or leading space and a line-anchored rule cannot fire at all. And the payload being redacted *is* the code under audit: a rule broad enough to touch ordinary source feeds the model `[REDACTED]` instead of the code, and the audit then returns a confident "no findings" precisely because it stopped working. The test suite therefore asserts what each rule must **not** match, including a secret-free diff that must come back byte-identical.
 
 ## Output
 
