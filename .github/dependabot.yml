@@ -1,6 +1,6 @@
 version: 2
 
-# skyphusion-labs Dependabot standard — see fleet-chezmoi/docs/runbooks/dependabot-standard.md
+# skyphusion-labs Dependabot standard -- see fleet-chezmoi/docs/runbooks/dependabot-standard.md
 # PRs only (never auto-merge). Group minor/patch; majors stay separate. Peer families bump together.
 updates:
   - package-ecosystem: github-actions
@@ -20,10 +20,13 @@ updates:
     commit-message:
       prefix: deps
     groups:
-      # vitest and @vitest/* must move together or coverage breaks on a version skew.
-      vitest:
-        patterns: ["vitest", "@vitest/*"]
+      vitest-toolchain:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       npm-minor-patch:
         patterns: ["*"]
-        exclude-patterns: ["vitest", "@vitest/*"]
+        exclude-patterns:
+          - "vitest"
+          - "@vitest/*"
         update-types: ["minor", "patch"]
