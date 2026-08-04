@@ -111,6 +111,12 @@ The rules match tokens, never whole lines or spans, for two reasons. In `pr` mod
 
 JSON (default) or markdown table with severity, location, title, and detail. Findings include optional exploit path and remediation fields when the model returns them.
 
+## See also
+
+- **Write-up:** [security-audit: an adversarial LLM gate you can run on every PR](https://skyphusion.net/blog/security-audit/)
+- **Labs hub:** [skyphusion.org](https://skyphusion.org) · **Blog:** [skyphusion.net](https://skyphusion.net)
+- **Related:** [search-mcp](https://github.com/skyphusion-labs/search-mcp), [postern](https://github.com/skyphusion-labs/postern), [prism](https://github.com/skyphusion-labs/prism)
+
 ## License
 
 MIT: see [LICENSE](LICENSE).
