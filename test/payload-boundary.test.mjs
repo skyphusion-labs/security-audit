@@ -2,7 +2,13 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readText, resolveVisibility } from "../adversarial-audit.mjs";
+import {
+  readText,
+  resolveVisibility,
+  resolveModelRepo,
+  gatewayAllowedForVisibility,
+  isWorkersAiModel,
+} from "../adversarial-audit.mjs";
 
 // Two behaviors that the audit's usefulness and its data boundary rest on.
 //
@@ -97,5 +103,56 @@ describe("resolveVisibility", () => {
 
     process.env.GITHUB_EVENT_PATH = join(work, "absent.json");
     expect(await resolveVisibility({})).toBe("private");
+  });
+});
+
+describe("repo model routing (fc#1327)", () => {
+  const prevAudit = process.env.AUDIT_MODEL_REPO;
+  const prevModel = process.env.MODEL_REPO;
+
+  afterEach(() => {
+    if (prevAudit === undefined) delete process.env.AUDIT_MODEL_REPO;
+    else process.env.AUDIT_MODEL_REPO = prevAudit;
+    if (prevModel === undefined) delete process.env.MODEL_REPO;
+    else process.env.MODEL_REPO = prevModel;
+  });
+
+  it("defaults to kimi-k3 for external users", () => {
+    delete process.env.AUDIT_MODEL_REPO;
+    delete process.env.MODEL_REPO;
+    expect(resolveModelRepo({})).toBe("moonshotai/kimi-k3");
+  });
+
+  it("flag wins over env", () => {
+    process.env.AUDIT_MODEL_REPO = "moonshotai/kimi-k3";
+    expect(resolveModelRepo({ "model-repo": "anthropic/claude-opus-5" })).toBe(
+      "anthropic/claude-opus-5",
+    );
+  });
+
+  it("env wins over package default", () => {
+    delete process.env.MODEL_REPO;
+    process.env.AUDIT_MODEL_REPO = "anthropic/claude-opus-5";
+    expect(resolveModelRepo({})).toBe("anthropic/claude-opus-5");
+  });
+
+  it("Moonshot gateway is public-only; Anthropic is allowed for private", () => {
+    expect(gatewayAllowedForVisibility("moonshotai/kimi-k3", "public")).toBe(true);
+    expect(gatewayAllowedForVisibility("moonshotai/kimi-k3", "private")).toBe(false);
+    expect(gatewayAllowedForVisibility("moonshotai/kimi-k3", "internal")).toBe(false);
+    expect(gatewayAllowedForVisibility("anthropic/claude-opus-5", "public")).toBe(true);
+    expect(gatewayAllowedForVisibility("anthropic/claude-opus-5", "private")).toBe(true);
+    expect(gatewayAllowedForVisibility("anthropic/claude-opus-5", "internal")).toBe(true);
+  });
+
+  it("unknown third-party prefixes fail-safe to public-only", () => {
+    expect(gatewayAllowedForVisibility("openai/gpt-4o", "private")).toBe(false);
+    expect(gatewayAllowedForVisibility("openai/gpt-4o", "public")).toBe(true);
+  });
+
+  it("Workers AI models are on-shore", () => {
+    expect(isWorkersAiModel("@cf/moonshotai/kimi-k2.7-code")).toBe(true);
+    expect(isWorkersAiModel("moonshotai/kimi-k3")).toBe(false);
+    expect(gatewayAllowedForVisibility("@cf/moonshotai/kimi-k2.7-code", "private")).toBe(true);
   });
 });

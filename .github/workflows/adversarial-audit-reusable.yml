@@ -1,25 +1,28 @@
 name: Adversarial security audit (reusable)
 
 # LLM red-team layer on top of static analysis (advisory by default).
-#   mode=pr   -> @cf/moonshotai/kimi-k2.7-code on merge-base diff (PR / push)
-#   mode=repo -> tracked source tree (scheduled deep audit). K3 through the AI Gateway on
-#                a PUBLIC repo; on a private/internal repo the script routes the SAME
-#                repo-mode prompt to K2.7 on Workers AI instead, so the tree never egresses
-#                to a third-party provider. No input is needed for that: the script reads
-#                the CALLING repository's visibility from the Actions event payload and
-#                fail-safes to private. See the data-boundary section of the README.
+#   mode=pr   -> @cf/moonshotai/kimi-k2.7-code on merge-base diff (PR / push; not overridable)
+#   mode=repo -> tracked source tree via --model-repo (default moonshotai/kimi-k3).
+#                Moonshot and other non-Anthropic gateway models: PUBLIC only; private
+#                falls back to K2.7 on Workers AI. anthropic/* is allowed for private.
+#                See the data-boundary section of the README (v0.3.0+).
 #
-# Secrets: CF_AIG_TOKEN (K3), CLOUDFLARE_API_TOKEN (K2.7 @cf /ai/run)
+# Secrets: CF_AIG_TOKEN (gateway repo mode), CLOUDFLARE_API_TOKEN (K2.7 @cf /ai/run)
 # Vars:    CLOUDFLARE_ACCOUNT_ID, AI_GATEWAY_ID
 
 on:
   workflow_call:
     inputs:
       mode:
-        description: pr (K2.7 diff) or repo (K3 full tree)
+        description: pr (K2.7 diff) or repo (gateway model full tree)
         required: false
         type: string
         default: pr
+      model_repo:
+        description: repo-mode gateway model (default package kimi-k3; e.g. anthropic/claude-opus-5)
+        required: false
+        type: string
+        default: ""
       base_ref:
         description: Optional git base ref/sha for pr mode (default origin/main)
         required: false
@@ -82,6 +85,9 @@ jobs:
             exit 2
           fi
           args=(--mode "${{ inputs.mode }}" --output json --out-file audit.json --md-file audit-report.md)
+          if [[ -n "${{ inputs.model_repo }}" ]]; then
+            args+=(--model-repo "${{ inputs.model_repo }}")
+          fi
           if [[ -n "${{ inputs.base_ref }}" ]]; then
             args+=(--base "${{ inputs.base_ref }}")
           fi

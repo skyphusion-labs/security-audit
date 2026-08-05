@@ -9,26 +9,42 @@ This is an **advisory** layer on top of static analysis (CodeQL, Semgrep, etc.).
 | Mode | Model | Scope | Typical trigger |
 | --- | --- | --- | --- |
 | **pr** | `@cf/moonshotai/kimi-k2.7-code` (Workers AI) | Merge-base diff + changed files | Every PR to `main` |
-| **repo**, PUBLIC repo | `moonshotai/kimi-k3` (through the AI Gateway) | Tracked source tree (~250k char budget) | `workflow_dispatch` or scheduled deep audit |
-| **repo**, PRIVATE / INTERNAL repo | `@cf/moonshotai/kimi-k2.7-code` (Workers AI) | Same tree snapshot, same prompt, on-shore | same |
+| **repo** (default) | `moonshotai/kimi-k3` via AI Gateway when PUBLIC; else K2.7 on-shore | Tracked source tree (~250k char budget) | `workflow_dispatch` or scheduled deep audit |
+| **repo** (override) | any gateway model via `--model-repo` / `AUDIT_MODEL_REPO` | same | same |
+
+PR mode is **not** overridable: it always stays on Workers AI (no third-party egress).
+
+### Choosing a repo-mode model
+
+Package default is **`moonshotai/kimi-k3`** so external users keep the public-service
+behavior. Override when you want a different provider on Unified Billing:
+
+```bash
+# Estate deep audits (Anthropic via CF AI Gateway, keyless)
+node adversarial-audit.mjs --mode repo --model-repo anthropic/claude-opus-5
+
+# Or env (handy in workflows)
+export AUDIT_MODEL_REPO=anthropic/claude-opus-5
+node adversarial-audit.mjs --mode repo
+```
+
+Kimi remains fully supported; this is a selectable default, not a hard swap.
 
 ### The repo-mode data boundary
 
-The two models sit on different data paths, and repo mode is the one that matters:
-`@cf/...` models **run on Workers AI**, so the payload stays inside your Cloudflare
-account, while `moonshotai/kimi-k3` is **proxied by the AI Gateway to Moonshot's own
-API** -- a gateway forwards a request, it does not contain it. Repo mode ships your whole
-tracked tree, so:
+Gateway models leave your Cloudflare account (the gateway **forwards** the request).
+Repo mode ships the whole tracked tree, so egress is gated by visibility **and** model:
 
-**Repo mode only uses K3 when the repository is PUBLIC.** For a private or internal repo
-it runs the same repo-mode prompt against K2.7 on Workers AI instead, prints a
-`DATA BOUNDARY --` line saying so, and the sweep still happens; it just does not egress.
+| Gateway model prefix | PUBLIC | PRIVATE / INTERNAL |
+| --- | --- | --- |
+| `moonshotai/*` (and other non-Anthropic third parties) | gateway model | fall back to K2.7 Workers AI |
+| `anthropic/*` | gateway model | gateway model (trusted US vendor) |
+| `@cf/*` (Workers AI) | on-shore | on-shore |
 
-Visibility is resolved in this order: an explicit `--visibility public|private|internal`,
-then the GitHub Actions event payload (`repository.visibility`, or `repository.private`),
-then **`private`**. The fail-safe direction is deliberate: an unknown answer must route
-on-shore, so a local run with no flag can never leak a private tree by omission. There is
-no override flag for the boundary itself, on purpose.
+When a gateway model is refused for the visibility, the same repo-mode prompt runs on
+K2.7 on Workers AI and a `DATA BOUNDARY --` line is printed. Visibility resolution order:
+explicit `--visibility`, then the GitHub event payload, then **`private`** (fail-safe
+on-shore). Unknown third-party prefixes fail-safe to public-only.
 
 
 ## Scripts
@@ -46,8 +62,9 @@ no override flag for the boundary itself, on purpose.
 | `CLOUDFLARE_ACCOUNT_ID` | Yes | Cloudflare account ID |
 | `CLOUDFLARE_API_TOKEN` | pr mode | Account-scoped token with Workers AI access (`/ai/run`) |
 | `ADVERSARIAL_AUDIT_CF_API_TOKEN` | pr mode (Actions) | Recommended GitHub secret name when the repo already uses `CLOUDFLARE_API_TOKEN` for wrangler deploy; map into `CLOUDFLARE_API_TOKEN` env in the workflow |
-| `CF_AIG_TOKEN` | repo mode | AI Gateway unified-billing token (`cf-aig-authorization`) |
+| `CF_AIG_TOKEN` | repo mode on a gateway model | AI Gateway unified-billing token (`cf-aig-authorization`) |
 | `AI_GATEWAY_ID` | No | Gateway slug (default: `your-gateway-id`) |
+| `AUDIT_MODEL_REPO` | No | Override default repo-mode gateway model (`moonshotai/kimi-k3`) |
 
 Create an [AI Gateway](https://developers.cloudflare.com/ai-gateway/get-started/) in your account and set `AI_GATEWAY_ID` to its ID.
 
@@ -64,14 +81,19 @@ export AI_GATEWAY_ID=your-gateway-id
 # PR diff audit (default base: origin/main)
 node adversarial-audit.mjs --mode pr --output markdown
 
-# Full repository snapshot
+# Full repository snapshot (default: Kimi K3 when public)
 node adversarial-audit.mjs --mode repo --output json --out-file audit.json
+
+# Estate-style deep audit on Opus via the AI Gateway
+node adversarial-audit.mjs --mode repo --model-repo anthropic/claude-opus-5
 ```
 
 ### Options
 
 ```
 --mode pr|repo
+--model-repo ID         repo-mode gateway model (default moonshotai/kimi-k3;
+                        env AUDIT_MODEL_REPO). PR mode is not overridable.
 --base SHA              merge base for pr mode
 --head SHA              head ref (default: HEAD)
 --repo-root PATH        repository root (default: .)
