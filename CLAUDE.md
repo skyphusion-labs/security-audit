@@ -15,13 +15,13 @@ Published as **`@skyphusion/security-audit`**. Version is root `package.json` (t
 | Mode | Model | Scope | Typical trigger |
 | --- | --- | --- | --- |
 | **pr** | `@cf/moonshotai/kimi-k2.7-code` (Workers AI) | Merge-base diff + changed files | Every PR to `main` |
-| **repo**, PUBLIC | `moonshotai/kimi-k3` (AI Gateway -> Moonshot) | Tracked source tree (~250k char) | `workflow_dispatch` / scheduled |
-| **repo**, PRIVATE / INTERNAL | `@cf/moonshotai/kimi-k2.7-code` (Workers AI) | Same tree snapshot, on-shore | same |
+| **repo** (default) | `moonshotai/kimi-k3` via Gateway when PUBLIC; else K2.7 | Tracked source tree (~250k char) | `workflow_dispatch` / scheduled |
+| **repo** (override) | `--model-repo` / `AUDIT_MODEL_REPO` (e.g. `anthropic/claude-opus-5`) | same | same |
 
-**Repo mode only uses K3 when the repository is PUBLIC.** Private or internal repos use K2.7 on
-Workers AI (payload stays in the CF account). Visibility resolution order: explicit
-`--visibility`, then GitHub event payload, then **private** (fail-safe on-shore). There is no
-override flag to force K3 on a private tree.
+**PR mode is not overridable** (no third-party egress on diffs). Repo-mode model is selectable;
+package default stays Kimi for external users. Data boundary: `moonshotai/*` and unknown
+third parties are PUBLIC-only (private falls back to K2.7); `anthropic/*` is allowed for
+private/internal. Visibility: explicit `--visibility`, then GitHub event, then **private**.
 
 ## Package scripts
 

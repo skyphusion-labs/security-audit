@@ -2,8 +2,9 @@ name: Adversarial audit
 
 # LLM red-team advisory layer (CodeQL or SAST stays the merge gate).
 # Public repo: checkout this script repo and run inline.
-#   pr   -> @cf/moonshotai/kimi-k2.7-code on merge-base diff
-#   repo -> moonshotai/kimi-k3 full tree (workflow_dispatch only; needs CF_AIG_TOKEN)
+#   pr   -> @cf/moonshotai/kimi-k2.7-code on merge-base diff (not overridable)
+#   repo -> gateway model full tree (default moonshotai/kimi-k3; override with
+#           --model-repo / AUDIT_MODEL_REPO, e.g. anthropic/claude-opus-5)
 #
 # Required secrets (repo or org): CF_AIG_TOKEN, ADVERSARIAL_AUDIT_CF_API_TOKEN
 # Required vars (repo or org):    CLOUDFLARE_ACCOUNT_ID, AI_GATEWAY_ID
@@ -17,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: pr (K2.7 diff) or repo (K3 full tree)
+        description: pr (K2.7 diff) or repo (gateway model full tree)
         required: true
         type: choice
         options:

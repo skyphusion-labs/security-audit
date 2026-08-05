@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+Repo-mode model is **configurable**; PR mode stays on K2.7 Workers AI (no egress).
+
+- **`--model-repo` / `AUDIT_MODEL_REPO`.** Package default remains `moonshotai/kimi-k3` for
+  external users. Estate workflows can pin `anthropic/claude-opus-5` (Unified Billing via
+  the AI Gateway) without forking the script. Kimi stays selectable.
+- **Data boundary refined.** Moonshot (and other non-Anthropic third-party gateway models)
+  still require a PUBLIC tree; private/internal falls back to K2.7 on Workers AI.
+  `anthropic/*` is allowed for private/internal (trusted US vendor). Unknown third-party
+  prefixes fail-safe to public-only.
+- **PR mode is not overridable** -- still `@cf/moonshotai/kimi-k2.7-code` on `/ai/run`.
+  Routing PR diffs to a third party remains an explicit product decision, not a side
+  effect of preferring Opus for deep audits.
+- Gateway call path renamed generically (`callGateway`); Moonshot-only `reasoning_effort`
+  is only sent for kimi/moonshot models so Anthropic compat does not reject the payload.
+
 ## 0.2.1
 
 Three redaction defects, all found by executing the redactor against the input shape it

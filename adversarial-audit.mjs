@@ -3,22 +3,31 @@
  * Adversarial security audit via Cloudflare Workers AI + AI Gateway.
  *
  * Modes:
- *   pr   -- @cf/moonshotai/kimi-k2.7-code on merge-base diff (every PR / push)
- *   repo -- tracked source tree (scheduled deep audit). PUBLIC repos: moonshotai/kimi-k3
- *           through the AI Gateway. PRIVATE/INTERNAL repos: the K2.7 model on Workers AI,
- *           because repo mode ships the whole tree and only a public tree may cross to a
- *           third-party provider (data boundary; unknown visibility resolves to private).
+ *   pr   -- @cf/moonshotai/kimi-k2.7-code on merge-base diff (every PR / push).
+ *           Stays on Workers AI (no third-party egress). Not configurable.
+ *   repo -- tracked source tree (scheduled deep audit) via the AI Gateway when
+ *           the chosen model is allowed for the repo's visibility. Default model
+ *           is moonshotai/kimi-k3 (public-service default). Override with
+ *           --model-repo / AUDIT_MODEL_REPO (e.g. anthropic/claude-opus-5).
+ *
+ * Data boundary (repo mode):
+ *   - moonshotai/* (and other non-Anthropic third-party gateway models): PUBLIC
+ *     only; private/internal falls back to K2.7 on Workers AI.
+ *   - anthropic/*: allowed for private/internal (trusted US vendor; estate default
+ *     for skyphusion-labs deep audits). Unknown prefixes fail-safe to public-only.
+ *   - @cf/* Workers AI models: always on-shore.
  *
  * Required env:
  *   CLOUDFLARE_ACCOUNT_ID
- *   CF_AIG_TOKEN            (repo mode / Kimi K3)
- *   CLOUDFLARE_API_TOKEN    (pr mode / @cf K2.7 Code on /ai/run)
+ *   CF_AIG_TOKEN            (repo mode on a gateway model)
+ *   CLOUDFLARE_API_TOKEN    (pr mode / on-shore K2.7 fallback /ai/run)
  * Optional env:
  *   AI_GATEWAY_ID (default: your-gateway-id)
+ *   AUDIT_MODEL_REPO        override default repo-mode gateway model
  *
  * Usage:
  *   node adversarial-audit.mjs --mode pr [--base SHA] [--head SHA]
- *   node adversarial-audit.mjs --mode repo
+ *   node adversarial-audit.mjs --mode repo [--model-repo anthropic/claude-opus-5]
  */
 
 import { execFileSync } from "node:child_process";
@@ -28,7 +37,8 @@ import { pathToFileURL } from "node:url";
 import { redactSecrets } from "./redact.mjs";
 
 const MODEL_PR = "@cf/moonshotai/kimi-k2.7-code";
-const MODEL_REPO = "moonshotai/kimi-k3";
+/** Package default for external users; estate workflows override to Opus. */
+const MODEL_REPO_DEFAULT = "moonshotai/kimi-k3";
 
 const MAX_DIFF_CHARS = 150_000;
 const MAX_FILE_CHARS = 30_000;
@@ -96,7 +106,10 @@ function usage(code = 1) {
   console.error(`usage: adversarial-audit.mjs --mode pr|repo [options]
 
 options:
-  --mode pr|repo          pr = Kimi K2.7 Code on diff; repo = Kimi K3 full tree
+  --mode pr|repo          pr = Kimi K2.7 Code on diff; repo = gateway model on full tree
+  --model-repo ID         repo-mode gateway model (default: ${MODEL_REPO_DEFAULT};
+                          env AUDIT_MODEL_REPO). Examples: moonshotai/kimi-k3,
+                          anthropic/claude-opus-5. PR mode is not overridable.
   --base SHA              merge base for pr mode (default: origin/main or GITHUB_BASE_SHA)
   --head SHA              head ref (default: HEAD)
   --repo-root PATH        repository root (default: .)
@@ -122,9 +135,19 @@ function parseArgs(argv) {
     const key = a.slice(2);
     const next = argv[i + 1];
     if (
-      ["mode", "base", "head", "repo-root", "output", "out-file", "md-file", "fail-on", "max-output-tokens", "visibility"].includes(
-        key,
-      )
+      [
+        "mode",
+        "model-repo",
+        "base",
+        "head",
+        "repo-root",
+        "output",
+        "out-file",
+        "md-file",
+        "fail-on",
+        "max-output-tokens",
+        "visibility",
+      ].includes(key)
     ) {
       if (!next || next.startsWith("--")) usage();
       out[key] = next;
@@ -135,6 +158,37 @@ function parseArgs(argv) {
   }
   if (out.mode !== "pr" && out.mode !== "repo") usage();
   return out;
+}
+
+/**
+ * Resolve the configured repo-mode model. Flag wins over env over package default.
+ * @param {Record<string, string|boolean>} args
+ */
+export function resolveModelRepo(args) {
+  const fromFlag = typeof args["model-repo"] === "string" ? args["model-repo"].trim() : "";
+  if (fromFlag) return fromFlag;
+  const fromEnv = process.env.AUDIT_MODEL_REPO?.trim() || process.env.MODEL_REPO?.trim() || "";
+  if (fromEnv) return fromEnv;
+  return MODEL_REPO_DEFAULT;
+}
+
+/** @param {string} model */
+export function isWorkersAiModel(model) {
+  return model.startsWith("@cf/");
+}
+
+/**
+ * Whether a repo-mode model may receive the tree given visibility.
+ * - @cf/* Workers AI: always (on-shore)
+ * - anthropic/*: allowed for private/internal (trusted; fc#1327)
+ * - moonshotai/* and everything else third-party: public only (fail-safe)
+ * @param {string} model
+ * @param {string} visibility public|private|internal
+ */
+export function gatewayAllowedForVisibility(model, visibility) {
+  if (isWorkersAiModel(model)) return true;
+  if (model.startsWith("anthropic/")) return true;
+  return visibility === "public";
 }
 
 function git(cwd, ...args) {
@@ -299,31 +353,40 @@ async function callK27Code({ accountId, gatewayId, token, messages, maxTokens })
   return { raw: body.result ?? body, text: messageContent(body.result ?? body) };
 }
 
-async function callK3({ accountId, gatewayId, token, messages, maxTokens }) {
+/**
+ * AI Gateway OpenAI-compat chat completions (Unified Billing / keyless providers).
+ * @param {{ accountId: string, gatewayId: string, token: string, model: string, messages: unknown[], maxTokens: number }} opts
+ */
+async function callGateway({ accountId, gatewayId, token, model, messages, maxTokens }) {
   const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/compat/chat/completions`;
+  /** @type {Record<string, unknown>} */
+  const payload = {
+    model,
+    messages,
+    max_tokens: maxTokens,
+    response_format: { type: "json_object" },
+  };
+  // Moonshot K3 accepts reasoning_effort; Anthropic compat does not -- omit for others.
+  if (model.startsWith("moonshotai/") || /kimi/i.test(model)) {
+    payload.reasoning_effort = "low";
+  }
   const resp = await fetch(url, {
     method: "POST",
     headers: {
       "cf-aig-authorization": `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: MODEL_REPO,
-      messages,
-      max_tokens: maxTokens,
-      reasoning_effort: "low",
-      response_format: { type: "json_object" },
-    }),
+    body: JSON.stringify(payload),
   });
   const rawText = await resp.text();
   let body;
   try {
     body = JSON.parse(rawText);
   } catch {
-    throw new Error(`Kimi K3 ${resp.status} non-JSON: ${rawText.slice(0, 300)}`);
+    throw new Error(`Gateway ${model} ${resp.status} non-JSON: ${rawText.slice(0, 300)}`);
   }
   if (!resp.ok || body.success === false) {
-    throw new Error(`Kimi K3 ${resp.status}: ${JSON.stringify(body).slice(0, 800)}`);
+    throw new Error(`Gateway ${model} ${resp.status}: ${JSON.stringify(body).slice(0, 800)}`);
   }
   return { raw: body, text: messageContent(body) };
 }
@@ -421,24 +484,29 @@ async function main() {
     console.error("FATAL: CLOUDFLARE_ACCOUNT_ID is required");
     process.exit(2);
   }
-  // Data boundary: repo mode may only leave for the third-party provider when the
-  // tree is already public. Private/internal trees stay on-shore -- same repo-mode
-  // prompt, served by the K2.7 model on Workers AI, no third-party egress.
+
+  // PR mode always on-shore K2.7. Repo mode: configured gateway model when the
+  // data boundary allows it for this visibility; else fall back to K2.7.
+  const modelRepo = resolveModelRepo(args);
   const visibility = mode === "repo" ? await resolveVisibility(args) : "public";
-  const k3Eligible = mode === "repo" && visibility === "public";
-  if (mode === "repo" && !k3Eligible) {
+  const useGateway =
+    mode === "repo" && !isWorkersAiModel(modelRepo) && gatewayAllowedForVisibility(modelRepo, visibility);
+  if (mode === "repo" && !useGateway && !isWorkersAiModel(modelRepo)) {
     console.error(
-      `adversarial-audit: DATA BOUNDARY -- repo visibility '${visibility}' != public; ` +
-        `routing repo mode to ${MODEL_PR} on Workers AI instead of ${MODEL_REPO} (no third-party egress)`,
+      `adversarial-audit: DATA BOUNDARY -- repo visibility '${visibility}' is not allowed for ` +
+        `gateway model ${modelRepo}; routing to ${MODEL_PR} on Workers AI (no third-party egress)`,
     );
   }
 
-  if ((mode === "pr" || (mode === "repo" && !k3Eligible)) && !apiToken) {
+  const useWorkersAi = mode === "pr" || !useGateway;
+  if (useWorkersAi && !apiToken) {
     console.error("FATAL: CLOUDFLARE_API_TOKEN is required for the K2.7 @cf /ai/run path");
     process.exit(2);
   }
-  if (k3Eligible && !aigToken) {
-    console.error("FATAL: CF_AIG_TOKEN is required for --mode repo on a public repo (Kimi K3 unified billing)");
+  if (useGateway && !aigToken) {
+    console.error(
+      `FATAL: CF_AIG_TOKEN is required for --mode repo with gateway model ${modelRepo} (Unified Billing)`,
+    );
     process.exit(2);
   }
 
@@ -460,11 +528,11 @@ async function main() {
     { role: "user", content: userPrompt },
   ];
 
-  const model = k3Eligible ? MODEL_REPO : MODEL_PR;
+  const model = useGateway ? modelRepo : MODEL_PR;
   console.error(`adversarial-audit: mode=${mode} model=${model} gateway=${gatewayId} visibility=${visibility}`);
 
-  const { text, raw } = k3Eligible
-    ? await callK3({ accountId, gatewayId, token: aigToken, messages, maxTokens })
+  const { text, raw } = useGateway
+    ? await callGateway({ accountId, gatewayId, token: aigToken, model: modelRepo, messages, maxTokens })
     : await callK27Code({ accountId, gatewayId, token: apiToken, messages, maxTokens });
 
   let parsed;
@@ -480,8 +548,15 @@ async function main() {
           "Your prior answer was not valid JSON or was truncated. Reply again with VALID JSON only. At most 8 findings. Keep detail fields under 240 characters each.",
       },
     ];
-    const retry = k3Eligible
-      ? await callK3({ accountId, gatewayId, token: aigToken, messages: retryMessages, maxTokens })
+    const retry = useGateway
+      ? await callGateway({
+          accountId,
+          gatewayId,
+          token: aigToken,
+          model: modelRepo,
+          messages: retryMessages,
+          maxTokens,
+        })
       : await callK27Code({ accountId, gatewayId, token: apiToken, messages: retryMessages, maxTokens });
     parsed = extractJson(retry.text);
   }
