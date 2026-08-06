@@ -66,3 +66,9 @@ npm run typecheck     # node --check adversarial-audit.mjs + redact.mjs; bash -n
 
 Crew work as their own identity (`sudo -u <member> bash -lc '...'`). Conrad laptop commits:
 `Conrad Rockenhaus <conrad@skyphusion.org>`.
+
+## Release / deploy
+
+**Tag-gated production deploy.** Merges to `main` run CI only; they do not ship production.
+Cut an annotated SemVer tag on `main` to release (`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`).
+Deploy workflows assert the tag commit is an ancestor of `origin/main`.
