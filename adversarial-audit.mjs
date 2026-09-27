@@ -321,6 +321,28 @@ function extractJson(text) {
   }
 }
 
+/**
+ * Parse the model reply and require the shape the report and the --fail-on gate read.
+ * A reply that is JSON but has no usable findings array is a malformed reply, not an empty
+ * audit: it throws so the caller retries compact and then fails the run (exit 2).
+ * @param {string} text
+ */
+export function parseAuditReply(text) {
+  const parsed = extractJson(text);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("model reply is not a JSON object with a findings array");
+  }
+  if (!Array.isArray(parsed.findings)) {
+    throw new Error(`model reply has no findings array (findings is ${parsed.findings === null ? "null" : typeof parsed.findings})`);
+  }
+  for (const f of parsed.findings) {
+    if (typeof f !== "string" && (f === null || typeof f !== "object" || Array.isArray(f))) {
+      throw new Error("model reply has a findings entry that is neither an object nor a string");
+    }
+  }
+  return parsed;
+}
+
 /** @param {unknown} body */
 function messageContent(body) {
   const msg = body?.choices?.[0]?.message ?? body?.result?.choices?.[0]?.message;
@@ -537,7 +559,7 @@ async function main() {
 
   let parsed;
   try {
-    parsed = extractJson(text);
+    parsed = parseAuditReply(text);
   } catch (firstErr) {
     console.error(`adversarial-audit: JSON parse failed (${firstErr.message}); retrying compact`);
     const retryMessages = [
@@ -558,7 +580,7 @@ async function main() {
           maxTokens,
         })
       : await callK27Code({ accountId, gatewayId, token: apiToken, messages: retryMessages, maxTokens });
-    parsed = extractJson(retry.text);
+    parsed = parseAuditReply(retry.text);
   }
   const report = {
     mode,
@@ -568,9 +590,7 @@ async function main() {
     head: headSha || undefined,
     generated_at: new Date().toISOString(),
     summary: parsed.summary || "",
-    findings: Array.isArray(parsed.findings)
-      ? parsed.findings.map((f) => (typeof f === "string" ? { severity: "info", title: f, file: "unknown", line: 0, detail: f, exploit: "", fix: "" } : f))
-      : [],
+    findings: parsed.findings.map((f) => (typeof f === "string" ? { severity: "info", title: f, file: "unknown", line: 0, detail: f, exploit: "", fix: "" } : f)),
     usage: raw.usage ?? undefined,
   };
 
