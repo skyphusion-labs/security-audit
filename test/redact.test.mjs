@@ -292,6 +292,26 @@ describe("pem rule -- redacts a real block", () => {
   });
 });
 
+describe("pem rule -- redacts a key split across string literals or hunks", () => {
+  it("redacts a PEM block built from concatenated string literals", () => {
+    const src = [
+      'const k = "' + PEM_BEGIN + '\\n" +',
+      '  "' + PEM_BODY[0] + '\\n" +',
+      '  "' + PEM_BODY[1] + '\\n" +',
+      '  "' + PEM_END + '";',
+      "const kept = 1;",
+    ].join("\n");
+    const out = redactSecrets(src);
+    expect(out).not.toContain("EXAMPLE");
+    expect(out).toContain("const kept = 1;");
+  });
+
+  it("redacts a PEM block split by a diff hunk header", () => {
+    const diff = ["+" + PEM_BEGIN, "+" + PEM_BODY[0], "@@ -10,3 +10,3 @@ fn", "+" + PEM_BODY[1], "+" + PEM_END].join("\n");
+    expect(redactSecrets(diff)).not.toContain("EXAMPLE");
+  });
+});
+
 describe("pem rule -- must not eat real source", () => {
   it("keeps the code between a BEGIN constant and an END constant", () => {
     const src = [
