@@ -102,6 +102,19 @@ Return strict JSON only (no markdown fences):
 }
 At most 8 findings. Prefer the highest-impact issues.`;
 
+/**
+ * Output-token budget: the flag if it is a positive integer, else the per-mode
+ * default. Null for a flag value that is not a positive integer.
+ * @param {string|boolean|undefined} raw
+ * @param {string} mode pr|repo
+ * @returns {number|null}
+ */
+export function resolveMaxTokens(raw, mode) {
+  if (raw === undefined || raw === "") return mode === "repo" ? 8000 : 2500;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 function usage(code = 1) {
   console.error(`usage: adversarial-audit.mjs --mode pr|repo [options]
 
@@ -117,7 +130,7 @@ options:
   --out-file PATH         also write formatted output to file
   --md-file PATH          also write markdown report (any --output mode)
   --fail-on LEVEL         none|high|critical (default none; advisory CI)
-  --max-output-tokens N   default 1800 (pr) / 4000 (repo)
+  --max-output-tokens N   default 2500 (pr) / 8000 (repo)
   --visibility V          public|private|internal (default: GitHub event payload, else
                           private). Governs the repo-mode data boundary below.
 `);
@@ -158,6 +171,7 @@ function parseArgs(argv) {
   }
   if (out.mode !== "pr" && out.mode !== "repo") usage();
   if (failOnThreshold(String(out["fail-on"])) === null) usage();
+  if (resolveMaxTokens(out["max-output-tokens"], out.mode) === null) usage();
   return out;
 }
 
@@ -556,7 +570,7 @@ async function main() {
   const base = mode === "pr" ? resolveBase(repoRoot, args.base ? String(args.base) : undefined) : null;
   const headRef = mode === "pr" ? String(args.head || "HEAD") : null;
   const headSha = mode === "pr" ? resolveHeadSha(repoRoot, args.head ? String(args.head) : undefined) : undefined;
-  const maxTokens = Number(args["max-output-tokens"] || (mode === "repo" ? 8000 : 2500));
+  const maxTokens = resolveMaxTokens(args["max-output-tokens"], mode);
 
   const userPrompt =
     mode === "pr"
