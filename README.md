@@ -113,7 +113,7 @@ Copy an example from `examples/` into `.github/workflows/` and configure secrets
 - **`examples/adversarial-audit-public.yml`**: checkout this repo and run inline (works for public repos).
 - **`examples/adversarial-audit-private-reusable-call.yml`**: call the reusable workflow (private repos).
 
-See also `.github/workflows/adversarial-audit-reusable.yml` in this repo for the callable workflow definition.
+The callable workflow (`.github/workflows/adversarial-audit-reusable.yml`) was retired on `main` in aa391a7 (no automated paid scanners). It still exists in the release tags `v0.1.0` through `v0.2.1`, so a caller pinned to one of those tags resolves; the workflow's `audit_scripts_ref` input defaults to `main`, so it runs the current audit scripts unless you pin that too.
 
 ### Fork PR safety
 

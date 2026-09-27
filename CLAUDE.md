@@ -42,9 +42,10 @@ npm run typecheck     # node --check adversarial-audit.mjs + redact.mjs; bash -n
 
 - This repo runs its own CI, coverage, and CodeQL. The reusable adversarial workflow
   (`.github/workflows/adversarial-audit-reusable.yml`) was retired in aa391a7 and does not exist
-  on `main`; re-enable it only if Conrad asks. Until then a caller of it (see
-  `examples/adversarial-audit-private-reusable-call.yml`) cannot resolve; the inline pattern in
-  `examples/adversarial-audit-public.yml` is the one that runs without it.
+  on `main`; re-enable it only if Conrad asks. It still exists in the tags `v0.1.0` to `v0.2.1`, so a
+  caller pinned to one of those (see `examples/adversarial-audit-private-reusable-call.yml`) resolves
+  but is unmaintained; the inline pattern in `examples/adversarial-audit-public.yml` does not
+  depend on it.
 - Fork PRs must skip tokened jobs (`head.repo.full_name == repository`) so untrusted code never
   receives Cloudflare secrets.
 
@@ -72,4 +73,6 @@ Crew work as their own identity (`sudo -u <member> bash -lc '...'`). Conrad lapt
 
 **Tag-gated production deploy.** Merges to `main` run CI only; they do not ship production.
 Cut an annotated SemVer tag on `main` to release (`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`).
-Deploy workflows assert the tag commit is an ancestor of `origin/main`.
+Deploy workflows assert the tag commit is an ancestor of `origin/main`. (Undetermined: no deploy or
+publish workflow lives in this repo, and none in the org `.github` repo makes that assertion, so where
+it is enforced is not known from here.)
