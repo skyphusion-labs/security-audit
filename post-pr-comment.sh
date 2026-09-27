@@ -21,11 +21,14 @@ fi
   cat "$report"
 } > pr-comment.md
 
-existing="$(
-  gh api "repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
-    --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("'"${marker}"'"))) | .id' \
-    | head -1 || true
+# --paginate: the API returns 30 comments per page, so a marker comment past the
+# first page would otherwise be missed and duplicated. A failed listing aborts
+# (set -e) instead of falling through to post a second comment.
+matches="$(
+  gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
+    --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("'"${marker}"'"))) | .id'
 )"
+existing="${matches%%$'\n'*}"
 
 if [[ -n "${existing}" ]]; then
   jq -n --rawfile body pr-comment.md '{body: $body}' \
