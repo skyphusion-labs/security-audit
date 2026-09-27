@@ -227,7 +227,7 @@ function isSourcePath(rel) {
 }
 
 /** @param {string} repoRoot @param {string} base @param {string} head */
-function collectPrPayload(repoRoot, base, head) {
+export function collectPrPayload(repoRoot, base, head) {
   const diff = git(repoRoot, "diff", `${base}...${head}`);
   const changed = git(repoRoot, "diff", "--name-only", `${base}...${head}`)
     .split("\n")
@@ -238,8 +238,7 @@ function collectPrPayload(repoRoot, base, head) {
   const chunks = [`# Git diff (${base}...${head})\n`, diff.slice(0, MAX_DIFF_CHARS)];
   if (diff.length > MAX_DIFF_CHARS) chunks.push("\n...[diff truncated]\n");
 
-  for (const rel of changed.slice(0, MAX_PR_FILES)) {
-    if (shouldSkip(rel)) continue;
+  for (const rel of changed.filter((f) => !shouldSkip(f)).slice(0, MAX_PR_FILES)) {
     const full = join(repoRoot, rel);
     const text = readText(full, MAX_FILE_CHARS);
     if (text) chunks.push(`\n# File: ${rel}\n\`\`\`\n${text}\n\`\`\`\n`);
