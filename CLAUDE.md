@@ -27,7 +27,7 @@ private/internal. Visibility: explicit `--visibility`, then GitHub event, then *
 
 ```bash
 npm test              # vitest
-npm run test:coverage
+npm run test:coverage  # vitest + the coverage floors in vitest.config.mjs; the ci workflow runs this
 npm run typecheck     # node --check adversarial-audit.mjs + redact.mjs; bash -n post-pr-comment.sh
 ```
 
