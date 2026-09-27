@@ -9,6 +9,11 @@ name: Adversarial audit
 # Required vars (repo or org):    CLOUDFLARE_ACCOUNT_ID, AI_GATEWAY_ID
 #
 # Replace YOUR_ORG with your GitHub org and pin the reusable workflow ref (tag or SHA).
+#
+# NOTE: the reusable workflow was retired on main in aa391a7 (no automated paid scanners; re-enable
+# only if Conrad asks). It still exists in the tags v0.1.0 to v0.2.1, so the @v0.1.0 pin below
+# resolves, but nothing on main maintains it. Its audit_scripts_ref input defaults to main; pin it.
+# For a workflow that does not depend on it, see adversarial-audit-public.yml.
 
 on:
   pull_request:
