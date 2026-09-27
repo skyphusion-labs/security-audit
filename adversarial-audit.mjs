@@ -526,8 +526,8 @@ export async function resolveVisibility(args) {
   return "private";
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
+export async function main(argv = process.argv.slice(2)) {
+  const args = parseArgs(argv);
   const repoRoot = String(args["repo-root"] || ".");
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
   const aigToken = process.env.CF_AIG_TOKEN?.trim();
