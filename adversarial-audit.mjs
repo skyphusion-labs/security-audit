@@ -457,6 +457,17 @@ function resolveBase(repoRoot, argBase) {
   }
 }
 
+/**
+ * Commit the report names as audited. An explicit --head is the commit the diff
+ * was taken against, so it wins over GITHUB_SHA (the commit the workflow ran on).
+ * @param {string} repoRoot
+ * @param {string|undefined} headArg
+ */
+export function resolveHeadSha(repoRoot, headArg) {
+  if (headArg) return git(repoRoot, "rev-parse", headArg);
+  return process.env.GITHUB_SHA?.trim() || git(repoRoot, "rev-parse", "HEAD");
+}
+
 export function severityRank(s) {
   return { critical: 4, high: 3, medium: 2, low: 1, info: 0 }[String(s).toLowerCase()] ?? 0;
 }
@@ -544,10 +555,7 @@ async function main() {
 
   const base = mode === "pr" ? resolveBase(repoRoot, args.base ? String(args.base) : undefined) : null;
   const headRef = mode === "pr" ? String(args.head || "HEAD") : null;
-  const headSha =
-    mode === "pr"
-      ? process.env.GITHUB_SHA?.trim() || git(repoRoot, "rev-parse", headRef)
-      : undefined;
+  const headSha = mode === "pr" ? resolveHeadSha(repoRoot, args.head ? String(args.head) : undefined) : undefined;
   const maxTokens = Number(args["max-output-tokens"] || (mode === "repo" ? 8000 : 2500));
 
   const userPrompt =
