@@ -218,7 +218,7 @@ describe("the data boundary at the request", () => {
     expect(r.stderr).toContain("DATA BOUNDARY");
     expect(r.calls).toHaveLength(1);
     expect(r.calls[0].url).toContain("https://api.cloudflare.com/client/v4/accounts/acct/ai/run/@cf/moonshotai/kimi-k2.7-code");
-    expect(r.calls.some((c) => c.url.includes("gateway.ai.cloudflare.com"))).toBe(false);
+    expect(r.calls.some((c) => new URL(c.url).hostname === "gateway.ai.cloudflare.com")).toBe(false);
     expect(r.report.model).toBe("@cf/moonshotai/kimi-k2.7-code");
   });
 
@@ -226,7 +226,7 @@ describe("the data boundary at the request", () => {
     const r = await run(repoMode("--visibility", "private", "--model-repo", "anthropic/claude-opus-5"));
     expect(r.code).toBe(0);
     expect(r.stderr).not.toContain("DATA BOUNDARY");
-    expect(r.calls[0].url).toContain("gateway.ai.cloudflare.com");
+    expect(new URL(r.calls[0].url).hostname).toBe("gateway.ai.cloudflare.com");
     expect(r.report.model).toBe("anthropic/claude-opus-5");
   });
 
