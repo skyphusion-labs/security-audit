@@ -31,7 +31,18 @@
  */
 
 const RULES = [
-  { name: "pem-block", re: /-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----/g, replace: "[REDACTED_PEM]" },
+  // The body is confined to what a PEM body can contain (base64, RFC 1421 header
+  // lines, whitespace, and the backslash of a JSON-escaped "\n"), and the END
+  // label must repeat the BEGIN label. A lazy [\s\S]*? here would pair a BEGIN
+  // constant with a later END constant and erase all the code between them.
+  // Quote characters and "@" are allowed in the body so a key split across string
+  // literals ("..." +) or across diff hunks (@@ ... @@) still redacts in full;
+  // a statement terminator or bracket ends the match.
+  {
+    name: "pem-block",
+    re: /-----BEGIN ([A-Z ]+)-----[A-Za-z0-9+/=:,.@"'`\\\s-]*?-----END \1-----/g,
+    replace: "[REDACTED_PEM]",
+  },
 
   // Matches the key wherever it sits: diff-prefixed, indented, quoted, or with
   // trailing content. The {20,} floor keeps documentation mentions of the
