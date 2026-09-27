@@ -332,3 +332,20 @@ describe("pem rule -- must not eat real source", () => {
     expect(redactSecrets(src)).toContain("EXAMPLE");
   });
 });
+
+describe("pem rule -- known limitation, tolerated on purpose", () => {
+  // Two markers with MATCHING labels and only PEM-body-permitted characters between
+  // them (no statement terminator, no bracket) still pair, so the short fragment
+  // between them is redacted with the block. The body class admits quotes and "@" so a
+  // key split across string literals or diff hunks stays fully redacted; the price is
+  // this over-match on adjacent constants. The loss is a punctuation-free fragment, and
+  // the alternative under-redacts key material, which is the costlier error. If you
+  // tighten the body class, this test is the boundary that was chosen; change it only
+  // together with the split-literal and split-hunk tests above.
+  it("adjacent BEGIN and END constants with no terminator between them still pair", () => {
+    const src = [`const A = "${PEM_BEGIN}"`, `const B = "${PEM_END}"`].join("\n");
+    const out = redactSecrets(src);
+    expect(out).toBe('const A = "[REDACTED_PEM]"');
+    expect(out).not.toContain("const B");
+  });
+});
