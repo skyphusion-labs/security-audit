@@ -40,10 +40,11 @@ npm run typecheck     # node --check adversarial-audit.mjs + redact.mjs; bash -n
 
 ## CI / adversarial gate
 
-- This repo runs its own CI, coverage, CodeQL, and the reusable adversarial workflow definition
-  (`.github/workflows/adversarial-audit-reusable.yml`).
-- Downstream product repos typically call the reusable workflow on every PR to `main` (K2.7 diff)
-  and optionally schedule full repo mode.
+- This repo runs its own CI, coverage, and CodeQL. The reusable adversarial workflow
+  (`.github/workflows/adversarial-audit-reusable.yml`) was retired in aa391a7 and does not exist
+  on `main`; re-enable it only if Conrad asks. Until then a caller of it (see
+  `examples/adversarial-audit-private-reusable-call.yml`) cannot resolve; the inline pattern in
+  `examples/adversarial-audit-public.yml` is the one that runs without it.
 - Fork PRs must skip tokened jobs (`head.repo.full_name == repository`) so untrusted code never
   receives Cloudflare secrets.
 

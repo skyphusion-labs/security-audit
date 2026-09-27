@@ -157,6 +157,7 @@ function parseArgs(argv) {
     }
   }
   if (out.mode !== "pr" && out.mode !== "repo") usage();
+  if (failOnThreshold(String(out["fail-on"])) === null) usage();
   return out;
 }
 
@@ -227,7 +228,7 @@ function isSourcePath(rel) {
 }
 
 /** @param {string} repoRoot @param {string} base @param {string} head */
-function collectPrPayload(repoRoot, base, head) {
+export function collectPrPayload(repoRoot, base, head) {
   const diff = git(repoRoot, "diff", `${base}...${head}`);
   const changed = git(repoRoot, "diff", "--name-only", `${base}...${head}`)
     .split("\n")
@@ -238,8 +239,7 @@ function collectPrPayload(repoRoot, base, head) {
   const chunks = [`# Git diff (${base}...${head})\n`, diff.slice(0, MAX_DIFF_CHARS)];
   if (diff.length > MAX_DIFF_CHARS) chunks.push("\n...[diff truncated]\n");
 
-  for (const rel of changed.slice(0, MAX_PR_FILES)) {
-    if (shouldSkip(rel)) continue;
+  for (const rel of changed.filter((f) => !shouldSkip(f)).slice(0, MAX_PR_FILES)) {
     const full = join(repoRoot, rel);
     const text = readText(full, MAX_FILE_CHARS);
     if (text) chunks.push(`\n# File: ${rel}\n\`\`\`\n${text}\n\`\`\`\n`);
@@ -457,8 +457,18 @@ function resolveBase(repoRoot, argBase) {
   }
 }
 
-function severityRank(s) {
-  return { critical: 4, high: 3, medium: 2, low: 1, info: 0 }[s] ?? 0;
+export function severityRank(s) {
+  return { critical: 4, high: 3, medium: 2, low: 1, info: 0 }[String(s).toLowerCase()] ?? 0;
+}
+
+/**
+ * Rank threshold for --fail-on: 0 = advisory (never fail), else the lowest
+ * severity rank that fails the run. Null for a level the gate does not know.
+ * @param {string} level
+ * @returns {number|null}
+ */
+export function failOnThreshold(level) {
+  return { none: 0, high: 3, critical: 4 }[String(level).toLowerCase()] ?? null;
 }
 
 /**
@@ -606,8 +616,8 @@ async function main() {
     writeFileSync(String(args["md-file"]), formatReport(report, "markdown"), "utf8");
   }
 
-  if (failOn !== "none") {
-    const threshold = failOn === "critical" ? 4 : 3;
+  const threshold = failOnThreshold(failOn);
+  if (threshold > 0) {
     const worst = Math.max(0, ...(report.findings.map((f) => severityRank(f.severity))));
     if (worst >= threshold) process.exit(1);
   }
