@@ -133,6 +133,10 @@ The rules match tokens, never whole lines or spans, for two reasons. In `pr` mod
 
 JSON (default) or markdown table with severity, location, title, and detail. Findings include optional exploit path and remediation fields when the model returns them.
 
+### Empty pull-request diff
+
+If pr mode's three-dot diff names no paths, the tool does not call the model. The JSON report's `summary` is `no changes to audit` and `skipped` is `empty-diff`. There is no `model` field. The exit code is 0. That report is not a clean audit.
+
 ## See also
 
 - **Write-up:** [security-audit: an adversarial LLM gate you can run on every PR](https://skyphusion.net/blog/security-audit/)
