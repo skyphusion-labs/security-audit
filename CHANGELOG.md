@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`--model-repo @cf/...` is refused.** Repo mode was accepting a Workers AI model id and then calling K2.7 with no message. The flag now exits 2 and names the requested id. Only K2.7 runs on the Workers AI path, and this flag does not select it.
+
 ## 0.3.0
 
 Repo-mode model is **configurable**; PR mode stays on K2.7 Workers AI (no egress).
