@@ -94,7 +94,8 @@ node adversarial-audit.mjs --mode repo --model-repo anthropic/claude-opus-5
 --mode pr|repo
 --model-repo ID         repo-mode gateway model (default moonshotai/kimi-k3;
                         env AUDIT_MODEL_REPO). PR mode is not overridable.
---base SHA              merge base for pr mode
+--base SHA              merge base for pr mode. A set GITHUB_BASE_REF that
+                        does not resolve is fatal (no fallback to main).
 --head SHA              head ref (default: HEAD)
 --repo-root PATH        repository root (default: .)
 --output json|markdown

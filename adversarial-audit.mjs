@@ -126,7 +126,8 @@ options:
                           anthropic/claude-opus-5. A @cf/* id is refused: only
                           ${MODEL_PR} runs on Workers AI, and this flag does not
                           select it. PR mode is not overridable.
-  --base SHA              merge base for pr mode (default: origin/main or GITHUB_BASE_SHA)
+  --base SHA              merge base for pr mode (default: origin/main or GITHUB_BASE_SHA).
+                          A set GITHUB_BASE_REF that does not resolve is fatal.
   --head SHA              head ref (default: HEAD)
   --repo-root PATH        repository root (default: .)
   --output json|markdown  default json
@@ -459,15 +460,51 @@ function formatReport(report, format) {
   return `${lines.join("\n")}\n`;
 }
 
-function resolveBase(repoRoot, argBase) {
+export class BaseResolutionError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "BaseResolutionError";
+  }
+}
+
+function revParseCommit(repoRoot, rev) {
+  try {
+    return git(repoRoot, "rev-parse", "--verify", `${rev}^{commit}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge base for pr mode.
+ *
+ * An explicit --base or GITHUB_BASE_SHA wins. A set GITHUB_BASE_REF is tried as
+ * origin/$REF and then as the bare name. If that named base does not resolve,
+ * this throws. It does not fall back to main, because a silent fallback audits
+ * the wrong commits.
+ *
+ * @param {string} repoRoot
+ * @param {string|undefined} argBase
+ */
+export function resolveBase(repoRoot, argBase) {
   if (argBase) return argBase;
   if (process.env.GITHUB_BASE_SHA) return process.env.GITHUB_BASE_SHA;
-  if (process.env.GITHUB_BASE_REF) {
-    try {
-      return git(repoRoot, "rev-parse", process.env.GITHUB_BASE_REF);
-    } catch {
-      /* fall through */
+  const named = (process.env.GITHUB_BASE_REF || "").trim();
+  if (named) {
+    const originRev = `origin/${named}`;
+    const fromOrigin = revParseCommit(repoRoot, originRev);
+    if (fromOrigin) {
+      console.error(`adversarial-audit: base ${originRev} (${fromOrigin})`);
+      return fromOrigin;
     }
+    const fromBare = revParseCommit(repoRoot, named);
+    if (fromBare) {
+      console.error(`adversarial-audit: base ${named} (${fromBare})`);
+      return fromBare;
+    }
+    throw new BaseResolutionError(
+      `GITHUB_BASE_REF '${named}' did not resolve as ${originRev} or ${named}`,
+    );
   }
   try {
     return git(repoRoot, "rev-parse", "origin/main");
@@ -580,7 +617,18 @@ export async function main(argv = process.argv.slice(2)) {
     process.exit(2);
   }
 
-  const base = mode === "pr" ? resolveBase(repoRoot, args.base ? String(args.base) : undefined) : null;
+  let base = null;
+  if (mode === "pr") {
+    try {
+      base = resolveBase(repoRoot, args.base ? String(args.base) : undefined);
+    } catch (err) {
+      if (err instanceof BaseResolutionError) {
+        console.error(`FATAL: ${err.message}`);
+        process.exit(2);
+      }
+      throw err;
+    }
+  }
   const headRef = mode === "pr" ? String(args.head || "HEAD") : null;
   const headSha = mode === "pr" ? resolveHeadSha(repoRoot, args.head ? String(args.head) : undefined) : undefined;
   const maxTokens = resolveMaxTokens(args["max-output-tokens"], mode);
