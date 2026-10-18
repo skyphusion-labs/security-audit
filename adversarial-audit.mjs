@@ -15,7 +15,8 @@
  *     only; private/internal falls back to K2.7 on Workers AI.
  *   - anthropic/*: allowed for private/internal (trusted US vendor; estate default
  *     for skyphusion-labs deep audits). Unknown prefixes fail-safe to public-only.
- *   - @cf/* Workers AI models: always on-shore.
+ *   - A --model-repo of @cf/* is refused. The Workers AI path is only K2.7,
+ *     and repo mode does not select it with this flag.
  *
  * Required env:
  *   CLOUDFLARE_ACCOUNT_ID
@@ -122,7 +123,9 @@ options:
   --mode pr|repo          pr = Kimi K2.7 Code on diff; repo = gateway model on full tree
   --model-repo ID         repo-mode gateway model (default: ${MODEL_REPO_DEFAULT};
                           env AUDIT_MODEL_REPO). Examples: moonshotai/kimi-k3,
-                          anthropic/claude-opus-5. PR mode is not overridable.
+                          anthropic/claude-opus-5. A @cf/* id is refused: only
+                          ${MODEL_PR} runs on Workers AI, and this flag does not
+                          select it. PR mode is not overridable.
   --base SHA              merge base for pr mode (default: origin/main or GITHUB_BASE_SHA).
                           A set GITHUB_BASE_REF that does not resolve is fatal.
   --head SHA              head ref (default: HEAD)
@@ -195,7 +198,9 @@ export function isWorkersAiModel(model) {
 
 /**
  * Whether a repo-mode model may receive the tree given visibility.
- * - @cf/* Workers AI: always (on-shore)
+ * - @cf/* Workers AI: always (on-shore). The CLI refuses a @cf --model-repo
+ *   before it consults this. The true here is the data-boundary answer, not a
+ *   promise that the flag selects that model.
  * - anthropic/*: allowed for private/internal (trusted; fc#1327)
  * - moonshotai/* and everything else third-party: public only (fail-safe)
  * @param {string} model
@@ -634,6 +639,14 @@ export async function main(argv = process.argv.slice(2)) {
   // PR mode always on-shore K2.7. Repo mode: configured gateway model when the
   // data boundary allows it for this visibility; else fall back to K2.7.
   const modelRepo = resolveModelRepo(args);
+  if (mode === "repo" && isWorkersAiModel(modelRepo)) {
+    console.error(
+      `FATAL: --model-repo ${modelRepo} is a Workers AI model. Only ${MODEL_PR} is supported ` +
+        `on the Workers AI path, and repo mode does not select it. Pass a gateway model ` +
+        `(for example ${MODEL_REPO_DEFAULT}) or omit --model-repo.`,
+    );
+    process.exit(2);
+  }
   const visibility = mode === "repo" ? await resolveVisibility(args) : "public";
   const useGateway =
     mode === "repo" && !isWorkersAiModel(modelRepo) && gatewayAllowedForVisibility(modelRepo, visibility);
