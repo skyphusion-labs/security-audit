@@ -10,7 +10,7 @@ This is an **advisory** layer on top of static analysis (CodeQL, Semgrep, etc.).
 | --- | --- | --- | --- |
 | **pr** | `@cf/moonshotai/kimi-k2.7-code` (Workers AI) | Merge-base diff + changed files | Every PR to `main` |
 | **repo** (default) | `moonshotai/kimi-k3` via AI Gateway when PUBLIC; else K2.7 on-shore | Tracked source tree (~250k char budget) | `workflow_dispatch` or scheduled deep audit |
-| **repo** (override) | any gateway model via `--model-repo` / `AUDIT_MODEL_REPO` | same | same |
+| **repo** (override) | a gateway model via `--model-repo` / `AUDIT_MODEL_REPO`. A `@cf/*` id is refused. | same | same |
 
 PR mode is **not** overridable: it always stays on Workers AI (no third-party egress).
 
@@ -39,7 +39,7 @@ Repo mode ships the whole tracked tree, so egress is gated by visibility **and**
 | --- | --- | --- |
 | `moonshotai/*` (and other non-Anthropic third parties) | gateway model | fall back to K2.7 Workers AI |
 | `anthropic/*` | gateway model | gateway model (trusted US vendor) |
-| `@cf/*` (Workers AI) | on-shore | on-shore |
+| `@cf/*` passed as `--model-repo` | refused. Only K2.7 runs on Workers AI, and this flag does not select it. | refused |
 
 When a gateway model is refused for the visibility, the same repo-mode prompt runs on
 K2.7 on Workers AI and a `DATA BOUNDARY --` line is printed. Visibility resolution order:
@@ -64,7 +64,7 @@ on-shore). Unknown third-party prefixes fail-safe to public-only.
 | `ADVERSARIAL_AUDIT_CF_API_TOKEN` | pr mode (Actions) | Recommended GitHub secret name when the repo already uses `CLOUDFLARE_API_TOKEN` for wrangler deploy; map into `CLOUDFLARE_API_TOKEN` env in the workflow |
 | `CF_AIG_TOKEN` | repo mode on a gateway model | AI Gateway unified-billing token (`cf-aig-authorization`) |
 | `AI_GATEWAY_ID` | No | Gateway slug (default: `your-gateway-id`) |
-| `AUDIT_MODEL_REPO` | No | Override default repo-mode gateway model (`moonshotai/kimi-k3`) |
+| `AUDIT_MODEL_REPO` | No | Override default repo-mode gateway model (`moonshotai/kimi-k3`). A `@cf/*` value is refused. |
 
 Create an [AI Gateway](https://developers.cloudflare.com/ai-gateway/get-started/) in your account and set `AI_GATEWAY_ID` to its ID.
 

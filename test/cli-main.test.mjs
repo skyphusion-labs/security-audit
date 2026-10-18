@@ -14,7 +14,7 @@ import { main, parseAuditReply } from "../adversarial-audit.mjs";
 // Deliberately NOT pinned here (open decisions, see the PR body): what an empty diff reports
 // (#34), repo-mode
 // file ordering, the byte budget and its omission marker, and whether json/yaml are source
-// (#36), and what `--model-repo @cf/...` does (#37).
+// (#36). `--model-repo @cf/...` is refused (#37).
 
 class Exit extends Error {
   constructor(code) {
@@ -208,6 +208,31 @@ describe("preflight (missing credentials exit 2 before any model call)", () => {
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("CLOUDFLARE_API_TOKEN is required");
     expect(r.calls).toHaveLength(0);
+  });
+});
+
+describe("--model-repo @cf is refused", () => {
+  it("does not call a model, and names K2.7", async () => {
+    const r = await run(repoMode("--model-repo", "@cf/meta/llama-3.1-8b-instruct"));
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("FATAL:");
+    expect(r.stderr).toContain("@cf/meta/llama-3.1-8b-instruct");
+    expect(r.stderr).toContain("@cf/moonshotai/kimi-k2.7-code");
+    expect(r.calls).toHaveLength(0);
+    expect(r.stdout).toBe("");
+  });
+
+  it("refuses AUDIT_MODEL_REPO the same way, including the K2.7 id itself", async () => {
+    const r = await run(repoMode(), { env: { AUDIT_MODEL_REPO: "@cf/moonshotai/kimi-k2.7-code" } });
+    expect(r.code).toBe(2);
+    expect(r.calls).toHaveLength(0);
+    expect(r.stderr).toContain("@cf/moonshotai/kimi-k2.7-code");
+  });
+
+  it("still accepts a gateway model", async () => {
+    const r = await run(repoMode("--visibility", "public", "--model-repo", "moonshotai/kimi-k3"));
+    expect(r.code).toBe(0);
+    expect(r.calls).toHaveLength(1);
   });
 });
 
