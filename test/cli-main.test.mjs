@@ -11,8 +11,7 @@ import { main, parseAuditReply } from "../adversarial-audit.mjs";
 // building, retry, report formatting and the --fail-on exit all run for real. process.exit is
 // intercepted only so a test can read the code the CLI would have exited with.
 //
-// Deliberately NOT pinned here (open decisions, see the PR body): GITHUB_BASE_REF
-// resolution and the origin/main -> main fallback (#35), repo-mode
+// Deliberately NOT pinned here (open decisions, see the PR body): repo-mode
 // file ordering, the byte budget and its omission marker, and whether json/yaml are source
 // (#36), and what `--model-repo @cf/...` does (#37).
 
@@ -502,6 +501,64 @@ describe("base and head resolution (explicit inputs only)", () => {
       env: { GITHUB_BASE_SHA: second },
     });
     expect(r.report.base).toBe(first);
+  });
+});
+
+describe("GITHUB_BASE_REF", () => {
+  let named;
+  let mainSha;
+  let featureSha;
+  const n = (...a) => execFileSync("git", ["-C", named, ...a], { encoding: "utf8" }).trim();
+
+  beforeAll(() => {
+    named = join(work, "named-base");
+    mkdirSync(named);
+    n("init", "-q", "-b", "main");
+    n("config", "user.email", "t@example.invalid");
+    n("config", "user.name", "t");
+    n("config", "commit.gpgsign", "false");
+    writeFileSync(join(named, "a.txt"), "main\n");
+    n("add", ".");
+    n("commit", "-q", "-m", "main");
+    mainSha = n("rev-parse", "HEAD");
+    n("checkout", "-q", "-b", "feature");
+    writeFileSync(join(named, "a.txt"), "feature\n");
+    n("commit", "-q", "-am", "feature");
+    featureSha = n("rev-parse", "HEAD");
+    // origin/feature points at main, so picking the local branch would be visible.
+    n("update-ref", "refs/remotes/origin/feature", mainSha);
+    n("checkout", "-q", "main");
+  });
+
+  it("uses origin/$REF before the local branch of the same name", async () => {
+    const r = await run(["--mode", "pr", "--repo-root", named], {
+      env: { GITHUB_BASE_REF: "feature" },
+    });
+    expect(r.code).toBe(0);
+    expect(r.report.base).toBe(mainSha);
+    expect(r.report.base).not.toBe(featureSha);
+    expect(r.stderr).toContain("base origin/feature");
+  });
+
+  it("uses the local branch when origin/$REF does not exist", async () => {
+    const r = await run(["--mode", "pr", "--repo-root", named], {
+      env: { GITHUB_BASE_REF: "main" },
+    });
+    expect(r.code).toBe(0);
+    expect(r.report.base).toBe(mainSha);
+    expect(r.stderr).toContain(`base main (${mainSha})`);
+  });
+
+  it("a named base that does not resolve is fatal and does not audit main", async () => {
+    const r = await run(["--mode", "pr", "--repo-root", named], {
+      env: { GITHUB_BASE_REF: "missing-base" },
+    });
+    expect(r.code).toBe(2);
+    expect(r.calls).toHaveLength(0);
+    expect(r.stderr).toContain("FATAL:");
+    expect(r.stderr).toContain("missing-base");
+    expect(r.stdout).toBe("");
+    expect(r.report).toBeUndefined();
   });
 });
 
