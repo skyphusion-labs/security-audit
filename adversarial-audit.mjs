@@ -247,6 +247,11 @@ function isSourcePath(rel) {
   return SOURCE_GLOBS.some((re) => re.test(rel));
 }
 
+/** True when the three-dot diff names no paths. An empty change set is not a clean audit. */
+export function prDiffIsEmpty(repoRoot, base, head) {
+  return git(repoRoot, "diff", "--name-only", `${base}...${head}`).trim() === "";
+}
+
 /** @param {string} repoRoot @param {string} base @param {string} head */
 export function collectPrPayload(repoRoot, base, head) {
   const diff = git(repoRoot, "diff", `${base}...${head}`);
@@ -446,6 +451,10 @@ function formatReport(report, format) {
       report.base && report.head ? ` · \`${short(report.base)}...${short(report.head)}\`` : "";
     lines.push(`_Generated ${report.generated_at}${range}_`, "");
   }
+  if (report.skipped === "empty-diff") {
+    lines.push(report.summary || "no changes to audit", "", "The model was not called.");
+    return `${lines.join("\n")}\n`;
+  }
   lines.push(
     report.summary || "(no summary)",
     "",
@@ -458,6 +467,16 @@ function formatReport(report, format) {
   }
   if (!report.findings?.length) lines.push("| - | - | No findings |");
   return `${lines.join("\n")}\n`;
+}
+
+async function emitReport(report, args, output) {
+  const formatted = formatReport(report, output);
+  process.stdout.write(formatted);
+  if (args["out-file"] || args["md-file"]) {
+    const { writeFileSync } = await import("node:fs");
+    if (args["out-file"]) writeFileSync(String(args["out-file"]), formatted, "utf8");
+    if (args["md-file"]) writeFileSync(String(args["md-file"]), formatReport(report, "markdown"), "utf8");
+  }
 }
 
 export class BaseResolutionError extends Error {
@@ -579,6 +598,39 @@ export async function main(argv = process.argv.slice(2)) {
   const failOn = String(args["fail-on"] || "none");
   const mode = args.mode;
 
+  let base = null;
+  let headRef = null;
+  let headSha;
+  if (mode === "pr") {
+    try {
+      base = resolveBase(repoRoot, args.base ? String(args.base) : undefined);
+    } catch (err) {
+      if (err instanceof BaseResolutionError) {
+        console.error(`FATAL: ${err.message}`);
+        process.exit(2);
+      }
+      throw err;
+    }
+    headRef = String(args.head || "HEAD");
+    headSha = resolveHeadSha(repoRoot, args.head ? String(args.head) : undefined);
+    if (prDiffIsEmpty(repoRoot, base, headRef)) {
+      await emitReport(
+        {
+          mode: "pr",
+          summary: "no changes to audit",
+          findings: [],
+          base,
+          head: headSha,
+          generated_at: new Date().toISOString(),
+          skipped: "empty-diff",
+        },
+        args,
+        output,
+      );
+      return;
+    }
+  }
+
   if (!accountId) {
     console.error("FATAL: CLOUDFLARE_ACCOUNT_ID is required");
     process.exit(2);
@@ -617,20 +669,6 @@ export async function main(argv = process.argv.slice(2)) {
     process.exit(2);
   }
 
-  let base = null;
-  if (mode === "pr") {
-    try {
-      base = resolveBase(repoRoot, args.base ? String(args.base) : undefined);
-    } catch (err) {
-      if (err instanceof BaseResolutionError) {
-        console.error(`FATAL: ${err.message}`);
-        process.exit(2);
-      }
-      throw err;
-    }
-  }
-  const headRef = mode === "pr" ? String(args.head || "HEAD") : null;
-  const headSha = mode === "pr" ? resolveHeadSha(repoRoot, args.head ? String(args.head) : undefined) : undefined;
   const maxTokens = resolveMaxTokens(args["max-output-tokens"], mode);
 
   const userPrompt =
@@ -687,17 +725,7 @@ export async function main(argv = process.argv.slice(2)) {
     usage: raw.usage ?? undefined,
   };
 
-  const formatted = formatReport(report, output);
-  process.stdout.write(formatted);
-
-  if (args["out-file"]) {
-    const { writeFileSync } = await import("node:fs");
-    writeFileSync(String(args["out-file"]), formatted, "utf8");
-  }
-  if (args["md-file"]) {
-    const { writeFileSync } = await import("node:fs");
-    writeFileSync(String(args["md-file"]), formatReport(report, "markdown"), "utf8");
-  }
+  await emitReport(report, args, output);
 
   const threshold = failOnThreshold(failOn);
   if (threshold > 0) {

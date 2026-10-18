@@ -11,8 +11,7 @@ import { main, parseAuditReply } from "../adversarial-audit.mjs";
 // building, retry, report formatting and the --fail-on exit all run for real. process.exit is
 // intercepted only so a test can read the code the CLI would have exited with.
 //
-// Deliberately NOT pinned here (open decisions, see the PR body): what an empty diff reports
-// (#34), repo-mode
+// Deliberately NOT pinned here (open decisions, see the PR body): repo-mode
 // file ordering, the byte budget and its omission marker, and whether json/yaml are source
 // (#36). `--model-repo @cf/...` is refused (#37).
 
@@ -585,6 +584,39 @@ describe("GITHUB_BASE_REF", () => {
     expect(r.stderr).toContain("missing-base");
     expect(r.stdout).toBe("");
     expect(r.report).toBeUndefined();
+  });
+});
+
+describe("an empty pr diff is not a clean audit", () => {
+  it("reports no changes to audit and does not call the model, even with no credentials", async () => {
+    const r = await run(
+      ["--mode", "pr", "--repo-root", repo, "--base", second],
+      { env: { CLOUDFLARE_ACCOUNT_ID: undefined, CLOUDFLARE_API_TOKEN: undefined } },
+    );
+    expect(r.code).toBe(0);
+    expect(r.calls).toHaveLength(0);
+    expect(r.report.summary).toBe("no changes to audit");
+    expect(r.report.skipped).toBe("empty-diff");
+    expect(r.report.findings).toEqual([]);
+    expect(r.report.base).toBe(second);
+    expect(r.report.head).toBe(second);
+    expect(r.report).not.toHaveProperty("model");
+  });
+
+  it("markdown says the model was not called", async () => {
+    const r = await run(["--mode", "pr", "--repo-root", repo, "--base", second, "--output", "markdown"]);
+    expect(r.code).toBe(0);
+    expect(r.calls).toHaveLength(0);
+    expect(r.stdout).toContain("no changes to audit");
+    expect(r.stdout).toContain("The model was not called.");
+    expect(r.stdout).not.toContain("No findings");
+  });
+
+  it("a real diff still calls the model", async () => {
+    const r = await run(pr());
+    expect(r.calls).toHaveLength(1);
+    expect(r.report.summary).toBe("nothing found");
+    expect(r.report).not.toHaveProperty("skipped");
   });
 });
 
