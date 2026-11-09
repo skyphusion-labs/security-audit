@@ -71,8 +71,9 @@ Crew work as their own identity (`sudo -u <member> bash -lc '...'`). Conrad lapt
 
 ## Release / deploy
 
-**Tag-gated production deploy.** Merges to `main` run CI only; they do not ship production.
-Cut an annotated SemVer tag on `main` to release (`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`).
-Deploy workflows assert the tag commit is an ancestor of `origin/main`. (Undetermined: no deploy or
-publish workflow lives in this repo, and none in the org `.github` repo makes that assertion, so where
-it is enforced is not known from here.)
+No deploy workflow and no npm publish workflow live in this repo. `.github/workflows/ci.yml`
+runs on pull requests, pushes to `main`, and `workflow_dispatch` only (`npm run typecheck`,
+then `npm run test:coverage`). It does not run on tags, and nothing in this tree asserts
+that a tag commit is an ancestor of `origin/main`. A merge to `main` runs that CI; it does
+not ship a release. The org `.github` workflows (`corpus-notify.yml`, `coverage.yml`,
+`oss-discoverability-drift.yml`, `pages.yml`) are not a deploy gate for this package.
