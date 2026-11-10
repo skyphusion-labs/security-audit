@@ -8,7 +8,8 @@ Guidance for agents working in this repository.
 Gateway. Advisory layer on top of static analysis (CodeQL, Semgrep, etc.). It does not replace
 merge gates unless you opt in with `--fail-on`.
 
-Published as **`@skyphusion/security-audit`**. Version is root `package.json` (trust pin + tags).
+Named **`@skyphusion/security-audit`** in root `package.json`; not on the npm registry
+(`npm view` returns E404). Version is root `package.json` (trust pin + tags).
 
 ## Modes and data boundary (load-bearing)
 
@@ -71,8 +72,13 @@ Crew work as their own identity (`sudo -u <member> bash -lc '...'`). Conrad lapt
 
 ## Release / deploy
 
-**Tag-gated production deploy.** Merges to `main` run CI only; they do not ship production.
-Cut an annotated SemVer tag on `main` to release (`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`).
-Deploy workflows assert the tag commit is an ancestor of `origin/main`. (Undetermined: no deploy or
-publish workflow lives in this repo, and none in the org `.github` repo makes that assertion, so where
-it is enforced is not known from here.)
+Release = an annotated SemVer tag on `main` matching `package.json`
+(`git tag -a vX.Y.Z ...`). No workflow runs on tags. Root `package.json` is `0.3.0`
+and there is no `v0.3.0` tag (tags that exist: `v0.1.0`, `v0.2.0`, `v0.2.1`).
+
+No deploy workflow and no npm publish workflow live in this repo. `.github/workflows/ci.yml`
+runs on pull requests, pushes to `main`, and `workflow_dispatch` only (`npm run typecheck`,
+then `npm run test:coverage`). It does not run on tags, and nothing in this tree asserts
+that a tag commit is an ancestor of `origin/main`. A merge to `main` runs that CI; it does
+not ship a release. The org `.github` workflows (`corpus-notify.yml`, `coverage.yml`,
+`oss-discoverability-drift.yml`, `pages.yml`) are not a deploy gate for this package.
