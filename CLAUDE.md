@@ -8,7 +8,8 @@ Guidance for agents working in this repository.
 Gateway. Advisory layer on top of static analysis (CodeQL, Semgrep, etc.). It does not replace
 merge gates unless you opt in with `--fail-on`.
 
-Published as **`@skyphusion/security-audit`**. Version is root `package.json` (trust pin + tags).
+Named **`@skyphusion/security-audit`** in root `package.json`; not on the npm registry
+(`npm view` returns E404). Version is root `package.json` (trust pin + tags).
 
 ## Modes and data boundary (load-bearing)
 
@@ -70,6 +71,10 @@ Crew work as their own identity (`sudo -u <member> bash -lc '...'`). Conrad lapt
 `Conrad Rockenhaus <conrad@skyphusion.org>`.
 
 ## Release / deploy
+
+Release = an annotated SemVer tag on `main` matching `package.json`
+(`git tag -a vX.Y.Z ...`). No workflow runs on tags. Root `package.json` is `0.3.0`
+and there is no `v0.3.0` tag (tags that exist: `v0.1.0`, `v0.2.0`, `v0.2.1`).
 
 No deploy workflow and no npm publish workflow live in this repo. `.github/workflows/ci.yml`
 runs on pull requests, pushes to `main`, and `workflow_dispatch` only (`npm run typecheck`,
